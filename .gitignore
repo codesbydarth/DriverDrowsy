@@ -1,0 +1,76 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and outputs
+logs/
+*.log
+
+# Operating system and editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment and secrets
+.env
+*.env
+
+# Dataset archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Project datasets and generated image data
+data/raw/
+data/processed/
+dataset/
+
+# Dataset splits and manifests (contain machine-specific absolute paths)
+data/splits/
+
+# Large trained model and checkpoint files
+models/checkpoints/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
