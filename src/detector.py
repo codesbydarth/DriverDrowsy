@@ -13,8 +13,12 @@ import numpy as np
 
 from alerts.alert import AlertManager
 from models.baseline import BaselineDetector
+from src.dataset import crop_face_roi
+from src.feature_fusion import FeatureFusion, FusionResult
 from src.head_pose import HeadPoseEstimator, HeadPoseResult
 from src.landmark_detector import FaceLandmarks, FaceMeshDetector
+from src.temporal_fusion import TemporalDecision, TemporalDecisionLayer
+from src.vit_inference import ViTInferenceEngine
 from utils.config import DEFAULT_CONFIG, AppConfig, ProjectState
 from utils.logger import setup_logger
 
@@ -65,6 +69,9 @@ class DetectionResult:
     normalized_landmarks: Optional[np.ndarray] = None
     bbox: Optional[Tuple[int, int, int, int]] = None
     head_pose: Optional[HeadPoseResult] = None
+    fusion_result: Optional[FusionResult] = None
+    temporal_decision: Optional[TemporalDecision] = None
+    vit_probabilities: Optional[np.ndarray] = None
 
 
 class DrowsinessDetector:
@@ -78,13 +85,17 @@ class DrowsinessDetector:
     def __init__(
         self,
         config: Optional[AppConfig] = None,
-        enable_audio: bool = True
+        enable_audio: bool = True,
+        vit_engine: Optional[ViTInferenceEngine] = None,
+        enable_vit: bool = True,
     ) -> None:
         """Initialize pipeline subcomponents.
 
         Args:
             config: Master application configuration.
             enable_audio: Whether to activate acoustic alert system.
+            vit_engine: Optional pre-loaded ViTInferenceEngine (e.g. for testing).
+            enable_vit: Whether to load the ViT model checkpoint if vit_engine is None.
         """
         self.config = config or DEFAULT_CONFIG
 
@@ -102,6 +113,32 @@ class DrowsinessDetector:
         if self.enable_audio and self.config.audio.enabled:
             self.alert_manager = AlertManager(config=self.config)
 
+        # Phase 3 Feature Fusion & Temporal Decision Layer
+        self.feature_fusion = FeatureFusion(config=self.config)
+        self.temporal_decision_layer = TemporalDecisionLayer(
+            config=self.config,
+            alert_manager=self.alert_manager
+        )
+
+        # ViT Inference Engine (single instance, loaded once at startup)
+        self.vit_engine: Optional[ViTInferenceEngine] = None
+        if vit_engine is not None:
+            self.vit_engine = vit_engine
+        elif enable_vit:
+            ckpt_path = self.config.checkpoints_dir / "vit_best_production.pt"
+            if ckpt_path.exists():
+                try:
+                    self.vit_engine = ViTInferenceEngine(checkpoint_path=ckpt_path)
+                    logger.info("ViTInferenceEngine production model loaded successfully.")
+                except Exception as err:
+                    logger.error("Failed to load ViT production checkpoint: %s", err)
+                    self.vit_engine = None
+            else:
+                logger.warning(
+                    "ViT production checkpoint not found at %s. Running in classical fusion mode.",
+                    ckpt_path
+                )
+
         logger.info("DrowsinessDetector pipeline initialized successfully.")
 
     def process_frame(self, frame: Optional[np.ndarray]) -> DetectionResult:
@@ -115,28 +152,33 @@ class DrowsinessDetector:
         """
         if frame is None or frame.size == 0:
             logger.warning("Empty frame passed to process_frame.")
+            temporal_dec = self.temporal_decision_layer.update(None)
             return DetectionResult(
-                state=self.baseline_detector.current_state,
+                state=temporal_dec.current_state,
                 face_detected=False,
-                reasons=["Invalid or empty video frame"]
+                reasons=["Invalid or empty video frame"],
+                temporal_decision=temporal_dec,
             )
 
         frame_shape = frame.shape[:2]
 
-        # 1. Extract 468 MediaPipe FaceMesh landmarks
+        # 1. Single FaceMesh pass per frame (ONE MediaPipe pass!)
         face_landmarks: Optional[FaceLandmarks] = self.landmark_detector.detect(frame)
 
         if face_landmarks is None:
-            # Missing face: update baseline with None to handle gracefully
+            # Missing face: update baseline and temporal decision safely (no false escalation)
             baseline_res = self.baseline_detector.update(None)
+            temporal_dec = self.temporal_decision_layer.update(None)
+            active_reasons = temporal_dec.transition_reason if temporal_dec.transition_reason else ["No face detected"]
             return DetectionResult(
-                state=baseline_res.state,
+                state=temporal_dec.current_state,
                 perclos=baseline_res.perclos,
                 face_detected=False,
-                reasons=baseline_res.reasons
+                reasons=[active_reasons] if isinstance(active_reasons, str) else active_reasons,
+                temporal_decision=temporal_dec,
             )
 
-        # 2. 3D Head Pose Estimation
+        # 2. 3D Head Pose Estimation (solvePnP from FaceMesh landmarks)
         pose_res: HeadPoseResult = self.head_pose_estimator.estimate_pose(
             face_landmarks.pixel_landmarks,
             frame_shape=frame_shape
@@ -145,46 +187,84 @@ class DrowsinessDetector:
         pitch = pose_res.pitch if pose_res.success else 0.0
         yaw = pose_res.yaw if pose_res.success else 0.0
 
-        # 3. Classical Baseline Analysis & Temporal State Machine
+        # 3. Classical Baseline Analysis (EAR, MAR, PERCLOS buffer)
         baseline_res = self.baseline_detector.update(
             face_landmarks.pixel_landmarks,
             pitch=pitch,
             yaw=yaw
         )
 
-        # 4. Trigger Non-blocking Audio Alert on State Escalation
-        if self.alert_manager is not None:
-            self.alert_manager.trigger(baseline_res.state)
+        # 4. Extract Face ROI for ViT (reusing FaceMesh landmarks & frame, NO second detector pass!)
+        pil_crop, _ = crop_face_roi(
+            frame,
+            landmarks=face_landmarks.pixel_landmarks,
+            bbox=face_landmarks.bbox,
+            margin=self.config.dataset.face_margin,
+            target_size=self.config.vit.image_size,
+        )
+
+        # 5. ViT Inference (continuous 4-class probability vector)
+        if self.vit_engine is not None and self.vit_engine.is_ready:
+            vit_probs = self.vit_engine.infer(pil_crop)
+        else:
+            vit_probs = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
+
+        # 6. Multimodal Feature Fusion (Step 2)
+        fusion_res = self.feature_fusion.fuse(
+            vit_probabilities=vit_probs,
+            ear=baseline_res.avg_ear,
+            mar=baseline_res.mar,
+            perclos=baseline_res.perclos,
+            pitch=pitch,
+            yaw=yaw,
+            head_pose=pose_res,
+        )
+
+        # 7. Temporal Decision Layer (Step 3 - persistent across frames!)
+        temporal_dec = self.temporal_decision_layer.update(fusion_res)
+
+        # Final state comes STRICTLY from temporal_dec.current_state (NOT ViT argmax, NOT dominant_state)
+        final_state = temporal_dec.current_state
+
+        active_reasons = []
+        if temporal_dec.transition_reason:
+            active_reasons.append(temporal_dec.transition_reason)
+        active_reasons.extend(baseline_res.reasons)
 
         return DetectionResult(
-            state=baseline_res.state,
+            state=final_state,
             left_ear=baseline_res.left_ear,
             right_ear=baseline_res.right_ear,
             avg_ear=baseline_res.avg_ear,
             mar=baseline_res.mar,
             perclos=baseline_res.perclos,
             eyes_closed=baseline_res.eyes_closed,
-            continuous_closed_frames=baseline_res.continuous_closed_frames,
-            drowsy_persistence_counter=baseline_res.drowsy_persistence_counter,
-            alert_reset_counter=baseline_res.alert_reset_counter,
+            continuous_closed_frames=temporal_dec.continuous_closed_frames,
+            drowsy_persistence_counter=temporal_dec.drowsy_persistence_counter,
+            alert_reset_counter=temporal_dec.alert_reset_counter,
             is_yawning=baseline_res.is_yawning,
             is_nodding=baseline_res.is_nodding,
             is_distracted=baseline_res.is_distracted,
-            reasons=baseline_res.reasons,
+            reasons=active_reasons,
             face_detected=True,
             pixel_landmarks=face_landmarks.pixel_landmarks,
             normalized_landmarks=face_landmarks.normalized_landmarks,
             bbox=face_landmarks.bbox,
-            head_pose=pose_res
+            head_pose=pose_res,
+            fusion_result=fusion_res,
+            temporal_decision=temporal_dec,
+            vit_probabilities=vit_probs,
         )
 
     def reset(self) -> None:
         """Reset temporal state counters and rolling buffers."""
         self.baseline_detector.reset()
+        self.temporal_decision_layer.reset()
 
     def close(self) -> None:
         """Cleanly release all pipeline resources."""
         self.landmark_detector.close()
+        self.temporal_decision_layer.close()
         if self.alert_manager is not None:
             self.alert_manager.close()
             self.alert_manager = None

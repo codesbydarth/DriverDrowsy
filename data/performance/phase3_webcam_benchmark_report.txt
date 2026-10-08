@@ -1,0 +1,49 @@
+======================================================================
+PHASE 3 PHYSICAL WEBCAM VALIDATION REPORT
+======================================================================
+Date / Time:                      2026-10-07 23:20:47
+Hardware Platform:               Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
+GPU Accelerator:                  NVIDIA GeForce RTX 4050 Laptop GPU
+Operating System:                 Windows-10-10.0.26200-SP0
+Python / PyTorch:                 3.11.9 / 2.14.0+cu130
+CUDA Enabled:                     True (CUDA 13.0)
+OpenCV / MediaPipe:               4.11.0 / 0.10.21
+Video Input Source:               Webcam Index 0 (640x480)
+----------------------------------------------------------------------
+EXECUTION & RELIABILITY:
+  Target Post-Warmup Frames:      500
+  Successfully Processed:         500
+  Dropped / Failed Frames:        0
+  Face Detection Rate:            99.80% (499/500)
+  Frames with Face Active:        499
+  Frames without Face:            1
+  Total Benchmark Wall Time:      19.97 s
+----------------------------------------------------------------------
+SYNCHRONIZED PIPELINE LATENCY (ms):
+  Mean Latency:                   30.03 ms
+  Median Latency:                 30.06 ms
+  95th Percentile (P95):          44.68 ms
+  Maximum Latency:                47.26 ms
+  Mean Latency (Face Active):     30.09 ms
+  Mean Latency (No Face):         3.94 ms
+----------------------------------------------------------------------
+THROUGHPUT & FPS COMPARISON:
+  Synchronized End-to-End Mean:   38.05 FPS
+  Synchronized End-to-End Median: 33.27 FPS
+  Synchronized End-to-End Min:    21.16 FPS
+  Synchronized (Face Active Mean):37.61 FPS
+  Synchronized (No Face Mean):    254.10 FPS
+  Frames Meeting >= 28 FPS:       57.00%
+
+  Application / HUD Loop Mean:    27.74 FPS
+  Application / HUD Loop Median:  24.75 FPS
+  Application / HUD Mean Latency: 39.38 ms (includes camera I/O wait)
+----------------------------------------------------------------------
+COMPONENT LATENCY BREAKDOWN (Mean):
+  MediaPipe FaceMesh:             6.43 ms
+  Face ROI Extraction:            2.07 ms (active: 2.08 ms)
+  ViT Inference (CUDA sync):      20.12 ms (active: 20.16 ms)
+  Multimodal Feature Fusion:      0.30 ms (active: 0.30 ms)
+  Temporal Decision Layer:        0.06 ms
+  Overhead / HeadPose / Pipeline: 1.05 ms
+======================================================================

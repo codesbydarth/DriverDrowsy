@@ -224,6 +224,7 @@ class BaselineDetector:
         self.alert_reset_counter: int = 0
         self.yawn_counter: int = 0
         self.nod_counter: int = 0
+        self.resting_pitch: Optional[float] = None
 
         # Current system state
         self.current_state: ProjectState = ProjectState.ALERT
@@ -284,12 +285,25 @@ class BaselineDetector:
             self.yawn_counter = 0
             is_yawning = False
 
-        # 7. Head nodding persistence (sustained head dip qualifies as nodding off)
-        if abs(pitch) > self.thresholds.pitch_threshold_deg:
+        # 7. Head nodding movement detection (temporal pitch downward movement / excursion)
+        # Static head pitch (e.g. +20 deg facing laptop screen) must NOT count as repeated nodding.
+        p_val = float(pitch)
+        if self.resting_pitch is None:
+            self.resting_pitch = p_val
+        else:
+            # Smoothly track resting baseline posture when head is relatively still
+            if abs(p_val - self.resting_pitch) < 8.0:
+                self.resting_pitch = 0.98 * self.resting_pitch + 0.02 * p_val
+
+        # Downward nod movement: head drops significantly below resting baseline or severe slump
+        downward_dip = p_val - self.resting_pitch
+        is_nod_dip = (p_val > 0.0) and ((downward_dip >= 12.0) or (p_val >= 35.0))
+
+        if is_nod_dip:
             self.nod_counter += 1
             is_nodding = self.nod_counter >= self.temporal.head_nod_persistence
         else:
-            self.nod_counter = 0
+            self.nod_counter = max(0, self.nod_counter - 1)
             is_nodding = False
 
         # 8. Distraction indicator (head turned away)
@@ -402,6 +416,7 @@ class BaselineDetector:
         self.alert_reset_counter = 0
         self.yawn_counter = 0
         self.nod_counter = 0
+        self.resting_pitch = None
         self.current_state = ProjectState.ALERT
         self.perclos_buffer.reset()
         logger.info("BaselineDetector reset to initial ALERT state.")

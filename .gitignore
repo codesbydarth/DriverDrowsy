@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 
 # C extensions
 *.so
@@ -26,27 +28,34 @@ wheels/
 
 # Virtual environments
 .venv/
-env/
 venv/
+env/
 ENV/
 
-# Pytest / coverage
+# Testing & coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
 
 # Logs and outputs
 logs/
 *.log
 
-# Operating system and editor artifacts
+# Operating system artifacts
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
+desktop.ini
 *.swp
 *.swo
 *~
+
+# IDE and editor configurations
+.vscode/
+.idea/
 
 # Environment and secrets
 .env
@@ -59,18 +68,25 @@ Thumbs.db
 *.rar
 *.7z
 
-# Project datasets and generated image data
+# Raw and preprocessed training datasets (do not commit large image folders)
 data/raw/
 data/processed/
-dataset/
-
-# Dataset splits and manifests (contain machine-specific absolute paths)
+data/dataset/
+data/datasets/
+data/**/raw/
+data/Multi class/
+data/Multi_class/
 data/splits/
 
-# Large trained model and checkpoint files
+# Large trained ML models, weights, and checkpoints
 models/checkpoints/
 *.pt
 *.pth
+*.ckpt
 *.bin
 *.onnx
 *.safetensors
+
+# Temporary and cache files
+*.tmp
+*.temp

@@ -75,13 +75,13 @@ class LandmarkIndices:
 class ClassicalThresholds:
     """Configurable thresholds for classical biometric signals."""
     # Eye Aspect Ratio threshold (eyes closed when EAR < threshold)
-    ear_threshold: float = 0.25
+    ear_threshold: float = 0.18
 
     # Mouth Aspect Ratio threshold (mouth open/yawning when MAR > threshold)
     mar_threshold: float = 0.60
 
     # PERCLOS rolling-window threshold (fatigued when eye-closure ratio > threshold)
-    perclos_threshold: float = 0.15
+    perclos_threshold: float = 0.25
 
     # Head pose deviation thresholds in degrees
     yaw_threshold_deg: float = 20.0
@@ -96,30 +96,30 @@ class TemporalLogicConfig:
     are managed here.
     """
     # Drowsy persistence: frames of accumulated/sustained fatigue cues needed to trigger DROWSY
-    drowsy_persistence: int = 30
+    drowsy_persistence: int = 60        #30
 
     # Microsleep persistence: consecutive frames of eye closure to trigger MICROSLEEP
     # Note: Initial engineering prototype threshold, subject to calibration during evaluation
-    microsleep_persistence: int = 10
+    microsleep_persistence: int = 20    #10
 
     # Alert reset persistence: consecutive frames of normal alert signals required to recover to ALERT
-    alert_reset_persistence: int = 15
+    alert_reset_persistence: int = 30   #15
 
     # Rolling window size (in frames) for calculating PERCLOS (~3 seconds at 30 FPS)
-    perclos_window_size: int = 90
+    perclos_window_size: int = 180      #90
 
     # Normal blink duration filter: blinks lasting <= max_blink_frames are considered normal
     # and MUST NOT trigger LOW_VIGILANCE or DROWSY
-    max_normal_blink_frames: int = 4
+    max_normal_blink_frames: int = 13   #4
 
     # Sustained yawn persistence: frames of mouth opening required to qualify as fatigue yawn
-    yawn_persistence: int = 15
+    yawn_persistence: int = 40          #15
 
     # Sustained head nod persistence: frames of head pitch down required to qualify as nod
-    head_nod_persistence: int = 10
+    head_nod_persistence: int = 20      #10
 
     # Low vigilance persistence: frames of accumulated fatigue cues before triggering LOW_VIGILANCE
-    low_vigilance_persistence: int = 5
+    low_vigilance_persistence: int = 20  #5
 
 
 @dataclass
@@ -193,6 +193,74 @@ class ViTConfig:
 
 
 @dataclass
+class FeatureFusionConfig:
+    """Configuration for Phase 3 Multimodal Feature Fusion.
+
+    Defines engineering starting weights and signal normalization bounds
+    for combining continuous ViT probabilities with classical biometric signals.
+    Note: These are initial engineering parameters, not scientifically validated constants.
+    """
+    # Top-level multimodal fusion weights (Initial engineering starting values; sum to 1.0)
+    vit_weight: float = 0.60
+    ear_weight: float = 0.20
+    mar_weight: float = 0.10
+    head_pose_weight: float = 0.10
+
+    # Signal reference ranges for classical evidence normalization
+    ear_closed_min: float = 0.10       # EAR representing completely closed eye
+    ear_open_ref: float = 0.26         # EAR representing fully open alert eye
+    mar_normal_ref: float = 0.30       # MAR representing normal closed mouth
+    mar_yawn_max: float = 0.85         # MAR representing maximum yawn expansion
+    perclos_saturation: float = 0.30   # PERCLOS level corresponding to 100% fatigue evidence
+    pitch_nod_ref: float = 25.0        # Head pitch angle (deg) corresponding to 100% nod evidence
+    yaw_distract_ref: float = 35.0     # Head yaw angle (deg) corresponding to 100% distraction evidence
+
+    # Per-state classical evidence internal mixing weights
+    # Alert state classical weights
+    alert_ear_weight: float = 0.50
+    alert_mar_weight: float = 0.30
+    alert_pose_weight: float = 0.20
+
+    # Low vigilance classical weights (yawn dominant, supported by distraction and mild eye closure)
+    low_vigilance_mar_weight: float = 0.65
+    low_vigilance_yaw_weight: float = 0.20
+    low_vigilance_ear_weight: float = 0.15
+
+    # Drowsy state classical weights (PERCLOS & head nod primary, supported by low EAR & yawn)
+    drowsy_perclos_weight: float = 0.40
+    drowsy_nod_weight: float = 0.30
+    drowsy_ear_weight: float = 0.20
+    drowsy_mar_weight: float = 0.10
+
+    # Microsleep state classical weights (Eye closure heavily dominant, supported by PERCLOS & nod)
+    microsleep_ear_weight: float = 0.70
+    microsleep_perclos_weight: float = 0.20
+    microsleep_nod_weight: float = 0.10
+
+
+@dataclass
+class TemporalDecisionConfig:
+    """Configuration for Phase 3 Temporal Decision Layer.
+
+    Defines threshold gates, score boundaries, and history buffer size
+    for temporal state machine evidence accumulation.
+    """
+    # Evidence score thresholds to activate fatigue persistence accumulation
+    drowsy_score_threshold: float = 0.45
+    low_vigilance_score_threshold: float = 0.45
+    alert_score_threshold: float = 0.50
+
+    # Classical evidence gate thresholds (normalized in [0.0, 1.0])
+    eye_closure_threshold: float = 0.50     # Normalized eye closure
+    yawn_threshold: float = 0.50            # Normalized yawn evidence
+    nod_threshold: float = 0.50             # Normalized pitch nod evidence
+    distraction_threshold: float = 0.50     # Normalized yaw distraction evidence
+
+    # Rolling diagnostic history capacity (frames)
+    history_size: int = 180
+
+
+@dataclass
 class AppConfig:
     """Master application configuration coordinating all sub-configs."""
     landmarks: LandmarkIndices = field(default_factory=LandmarkIndices)
@@ -202,6 +270,8 @@ class AppConfig:
     visualizer: VisualizerConfig = field(default_factory=VisualizerConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     vit: ViTConfig = field(default_factory=ViTConfig)
+    fusion: FeatureFusionConfig = field(default_factory=FeatureFusionConfig)
+    temporal_decision: TemporalDecisionConfig = field(default_factory=TemporalDecisionConfig)
 
     # Base paths using pathlib.Path
     base_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent)

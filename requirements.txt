@@ -1,20 +1,25 @@
-# Core Computer Vision & Landmarks (Strictly MediaPipe, NO dlib)
-opencv-python>=4.8.0
-mediapipe>=0.10.0
-numpy>=1.24.0
+# Core Computer Vision & Biometrics (MediaPipe FaceMesh, NO dlib)
+opencv-python>=4.11.0
+mediapipe>=0.10.21
+numpy>=1.26.0
 
 # Audio Alert System
-pygame>=2.5.0
+pygame>=2.6.0
 
-# Imaging & GUI Utilities
+# Imaging Utilities
 Pillow>=10.0.0
 
-# Testing
-pytest>=7.4.0
-
-# Future Phases (ViT, Evaluation, Fusion)
+# Deep Learning (Vision Transformer Inference & Training)
+# For GPU acceleration with CUDA, install PyTorch with the CUDA wheel index (see README.md):
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121  (or cu118 / cu130)
 torch>=2.0.0
 torchvision>=0.15.0
 transformers>=4.30.0
+
+# Evaluation Metrics, Utilities & Visualization
 scikit-learn>=1.3.0
 matplotlib>=3.7.0
+tqdm>=4.65.0
+
+# Testing Framework
+pytest>=7.4.0
